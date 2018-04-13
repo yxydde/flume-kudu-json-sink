@@ -6,7 +6,7 @@
     <version>1.0</version>
     <packaging>jar</packaging>
 
-    <name>kudu-flume-sink-json</name>
+    <name>flume-kudu-json-sink</name>
     <url>http://maven.apache.org</url>
 
     <properties>

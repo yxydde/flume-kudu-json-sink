@@ -4,6 +4,7 @@ import com.alibaba.fastjson.JSONException;
 import com.alibaba.fastjson.JSONObject;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.apache.commons.lang.StringUtils;
 import org.apache.flume.Context;
 import org.apache.flume.Event;
 import org.apache.flume.FlumeException;
@@ -18,8 +19,10 @@ import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.nio.charset.Charset;
-import java.util.List;
-import java.util.Map;
+import java.text.DateFormat;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.*;
 import java.util.regex.Pattern;
 
 
@@ -45,7 +48,7 @@ import java.util.regex.Pattern;
  * documented in {@link Pattern}. The name of each capturing group must
  * correspond to a column name in the destination Kudu table.
  *
- * <p><strong><code>RegexpKuduOperationsProducer</code> Flume Configuration Parameters</strong></p>
+ * <p><strong><code>JsonKuduOperationsProducer</code> Flume Configuration Parameters</strong></p>
  *
  * <table cellpadding=3 cellspacing=0 border=1 summary="Flume Configuration Parameters">
  * <tr>
@@ -92,11 +95,16 @@ import java.util.regex.Pattern;
  * {@code Event}, causing a Flume {@code Channel} rollback.
  * </tr>
  * <tr>
- * <td>producer.warnUnmatchedRows</td>
- * <td>true</td>
+ * <td>producer.kuduTimeStampColums</td>
+ * <td>null</td>
  * <td>No</td>
- * <td>Whether to log a warning about payloads that do not match the pattern. If set to
- * {@code false}, event bodies with no matches will be silently dropped.</td>
+ * <td>Comma Separated Kudu TimeStamp Columes</td>
+ * </tr>
+ * <tr>
+ * <td>producer.inputDateFormat</td>
+ * <td>null</td>
+ * <td>No</td>
+ * <td>the data for Kudu TimeStamp Columes input format</td>
  * </tr>
  * </table>
  *
@@ -118,11 +126,14 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
     public static final boolean DEFAULT_SKIP_MISSING_COLUMN = false;
     public static final String SKIP_BAD_COLUMN_VALUE_PROP = "skipBadColumnValue";
     public static final boolean DEFAULT_SKIP_BAD_COLUMN_VALUE = false;
-    public static final String WARN_UNMATCHED_ROWS_PROP = "skipUnmatchedRows";
-    public static final boolean DEFAULT_WARN_UNMATCHED_ROWS = true;
 
     public static final String SKIP_ERROR_EVENT_PROP = "skipErrorEvent";
     public static final boolean DEFAULT_SKIP_ERROR_EVENT = true;
+
+    public static final String KUDU_TIMESTAMP_COLUMS = "kuduTimeStampColums";
+    public static final String INPUT_DATE_FORMAT = "inputDateFormat";
+    public static final String DEFAULT_INPUT_DATE_FORMAT = "yyyy-MM-dd HH:mm:ss.S";
+
 
     private KuduTable table;
 
@@ -131,7 +142,8 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
     private boolean skipMissingColumn;
     private boolean skipBadColumnValue;
     private boolean skipErrorEvent;
-    private boolean warnUnmatchedRows;
+    private Set<String> timeColumSet;
+    private DateFormat dateFormat;
 
     @Override
     public void configure(Context context) {
@@ -150,11 +162,22 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
                 operation);
         skipMissingColumn = context.getBoolean(SKIP_MISSING_COLUMN_PROP,
                 DEFAULT_SKIP_MISSING_COLUMN);
+        skipErrorEvent = context.getBoolean(SKIP_ERROR_EVENT_PROP,
+                DEFAULT_SKIP_ERROR_EVENT);
         skipBadColumnValue = context.getBoolean(SKIP_BAD_COLUMN_VALUE_PROP,
                 DEFAULT_SKIP_BAD_COLUMN_VALUE);
-        warnUnmatchedRows = context.getBoolean(WARN_UNMATCHED_ROWS_PROP,
-                DEFAULT_WARN_UNMATCHED_ROWS);
-        skipErrorEvent = context.getBoolean(SKIP_ERROR_EVENT_PROP, DEFAULT_SKIP_ERROR_EVENT);
+
+        String inputDateFormat = context.getString(INPUT_DATE_FORMAT, DEFAULT_INPUT_DATE_FORMAT);
+        dateFormat = new SimpleDateFormat(inputDateFormat);
+
+        String timeColumes = context.getString(KUDU_TIMESTAMP_COLUMS);
+        if (timeColumes != null && !StringUtils.isEmpty(timeColumes)) {
+            String[] array = timeColumes.split(",");
+            timeColumSet = new HashSet<>();
+            for (String col : array) {
+                timeColumSet.add(StringUtils.trim(col));
+            }
+        }
     }
 
     @Override
@@ -176,7 +199,7 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
         } catch (JSONException e) {
             String msg = String.format(
                     "Event '%s' Can't parse to Json Object", raw);
-            logOrThrow(skipMissingColumn, msg, e);
+            logOrThrow(skipErrorEvent, msg, e);
         }
 
         return ops;
@@ -190,20 +213,20 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
             try {
                 String key = entry.getKey();
                 col = schema.getColumn(key.toLowerCase());
-                final String s = entry.getValue().toString();
-                if (!isNullString(s)) {
-                    coerceAndSet(s, col.getName(), col.getType(), row);
+                final String value;
+                if (timeColumSet != null && timeColumSet.contains(col)) {
+                    value = toUnixtimeMicros(entry.getValue().toString());
+                } else {
+                    value = entry.getValue().toString();
+                }
+                if (!isNullOrEmpty(value)) {
+                    coerceAndSet(value, col.getName(), col.getType(), row);
                 }
             } catch (NumberFormatException e) {
                 String msg = String.format(
                         "Raw value '%s' couldn't be parsed to type %s for column '%s'",
                         raw, col.getType(), col.getName());
                 logOrThrow(skipBadColumnValue, msg, e);
-            } catch (IllegalArgumentException e) {
-                String msg = String.format(
-                        "Column '%s' has no matching group in '%s'",
-                        col.getName(), raw);
-                logOrThrow(skipMissingColumn, msg, e);
             } catch (Exception e) {
                 throw new FlumeException("Failed to create Kudu operation", e);
             }
@@ -212,6 +235,12 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
             logger.debug("Operation: " + op.getRow().toString());
         }
         return op;
+    }
+
+    private String toUnixtimeMicros(String dateString) throws ParseException {
+        Date date = dateFormat.parse(dateString);
+        long micros = date.getTime() * 1000;
+        return Long.toString(micros);
     }
 
     private Operation getOperationType() {
@@ -290,7 +319,7 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
         }
     }
 
-    private boolean isNullString(String value) {
+    private boolean isNullOrEmpty(String value) {
         if (value == null || "".equals(value.trim()) || "null".equals(value.trim().toLowerCase())) {
             return true;
         }

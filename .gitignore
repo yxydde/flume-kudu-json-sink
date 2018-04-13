@@ -6,4 +6,6 @@ dependency-reduced-pom.xml
 /doc
 .idea
 *.iml
+*.ipr
+*.iws
 /bin
