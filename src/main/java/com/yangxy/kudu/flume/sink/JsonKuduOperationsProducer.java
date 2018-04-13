@@ -128,7 +128,7 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
     public static final boolean DEFAULT_SKIP_BAD_COLUMN_VALUE = false;
 
     public static final String SKIP_ERROR_EVENT_PROP = "skipErrorEvent";
-    public static final boolean DEFAULT_SKIP_ERROR_EVENT = true;
+    public static final boolean DEFAULT_SKIP_ERROR_EVENT = false;
 
     public static final String KUDU_TIMESTAMP_COLUMS = "kuduTimeStampColums";
     public static final String INPUT_DATE_FORMAT = "inputDateFormat";
@@ -172,6 +172,8 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
 
         String timeColumes = context.getString(KUDU_TIMESTAMP_COLUMS);
         if (timeColumes != null && !StringUtils.isEmpty(timeColumes)) {
+            String msg = "kuduTimeStampColums=%s,inputDateFormat=%s";
+            logger.info(String.format(msg, timeColumes, inputDateFormat));
             String[] array = timeColumes.split(",");
             timeColumSet = new HashSet<>();
             for (String col : array) {
@@ -214,7 +216,7 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
                 String key = entry.getKey();
                 col = schema.getColumn(key.toLowerCase());
                 final String value;
-                if (timeColumSet != null && timeColumSet.contains(col)) {
+                if (timeColumSet != null && timeColumSet.contains(col.getName())) {
                     value = toUnixtimeMicros(entry.getValue().toString());
                 } else {
                     value = entry.getValue().toString();
