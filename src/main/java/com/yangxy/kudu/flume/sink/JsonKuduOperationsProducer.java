@@ -277,6 +277,9 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
     }
 
     private String toUnixtimeMicros(String dateString) throws ParseException {
+        if (dateString == null || "".equals(dateString.trim())) {
+            return dateString;
+        }
         Date date = dateFormat.parse(dateString);
         long micros = date.getTime() * 1000;
         return Long.toString(micros);
