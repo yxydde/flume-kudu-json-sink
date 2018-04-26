@@ -17,8 +17,9 @@ import org.apache.kudu.flume.sink.RegexpKuduOperationsProducer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.math.BigDecimal;
 import java.nio.charset.Charset;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
@@ -130,9 +131,14 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
     public static final String SKIP_ERROR_EVENT_PROP = "skipErrorEvent";
     public static final boolean DEFAULT_SKIP_ERROR_EVENT = false;
 
+    public static final String ADD_CONTENT_MD5 = "addContentMD5";
+
     public static final String KUDU_TIMESTAMP_COLUMS = "kuduTimeStampColums";
+    public static final String KUDU_PRIMARY_KEYS = "kuduPrimaryKeys";
     public static final String INPUT_DATE_FORMAT = "inputDateFormat";
     public static final String DEFAULT_INPUT_DATE_FORMAT = "yyyy-MM-dd HH:mm:ss.S";
+
+    private Set<String> primaryKeySet = null;
 
 
     private KuduTable table;
@@ -144,6 +150,8 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
     private boolean skipErrorEvent;
     private Set<String> timeColumSet;
     private DateFormat dateFormat;
+    private boolean addContentMD5;
+    private MessageDigest msgDigest;
 
     @Override
     public void configure(Context context) {
@@ -166,6 +174,20 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
                 DEFAULT_SKIP_ERROR_EVENT);
         skipBadColumnValue = context.getBoolean(SKIP_BAD_COLUMN_VALUE_PROP,
                 DEFAULT_SKIP_BAD_COLUMN_VALUE);
+
+        addContentMD5 = context.getBoolean(ADD_CONTENT_MD5, true);
+        try {
+            msgDigest = MessageDigest.getInstance("MD5");
+        } catch (NoSuchAlgorithmException e) {
+            throw new FlumeException(
+                    String.format("Invalid algorithm %s for MessageDigest ", "MD5"), e);
+        }
+        String primaryKeys = context.getString(KUDU_PRIMARY_KEYS, "");
+        primaryKeySet = new HashSet<>();
+        String[] pks = primaryKeys.split(",");
+        for (String pk : pks) {
+            primaryKeySet.add(pk.trim());
+        }
 
         String inputDateFormat = context.getString(INPUT_DATE_FORMAT, DEFAULT_INPUT_DATE_FORMAT);
         dateFormat = new SimpleDateFormat(inputDateFormat);
@@ -193,6 +215,9 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
         String raw = new String(event.getBody(), charset);
         try {
             JSONObject json = JSONObject.parseObject(raw);
+            if (addContentMD5) {
+                json.put("md5", new String(msgDigest.digest(raw.getBytes())));
+            }
             Schema schema = table.getSchema();
             if (!json.isEmpty()) {
                 Operation op = getOperation(raw, json, schema);
@@ -223,6 +248,9 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
                 }
                 if (!isNullOrEmpty(value)) {
                     coerceAndSet(value, col.getName(), col.getType(), row);
+                }
+                if (isNullOrEmpty(value) && isPrimaryKey(key)) {
+                    coerceAndSet(col.getName(), col.getType(), row);
                 }
             } catch (NumberFormatException e) {
                 String msg = String.format(
@@ -312,6 +340,46 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
         }
     }
 
+
+    private void coerceAndSet(String colName, Type type, PartialRow row)
+            throws NumberFormatException {
+        switch (type) {
+            case INT8:
+                row.addByte(colName, (byte) -1);
+                break;
+            case INT16:
+                row.addShort(colName, (short) -1);
+                break;
+            case INT32:
+                row.addInt(colName, -1);
+                break;
+            case INT64:
+                row.addLong(colName, -1);
+                break;
+            case BINARY:
+                row.addBinary(colName, "".getBytes(charset));
+                break;
+            case STRING:
+                row.addString(colName, "");
+                break;
+            case BOOL:
+                row.addBoolean(colName, false);
+                break;
+            case FLOAT:
+                row.addFloat(colName, -1);
+                break;
+            case DOUBLE:
+                row.addDouble(colName, -1);
+                break;
+            case UNIXTIME_MICROS:
+                row.addLong(colName, System.currentTimeMillis() * 1000);
+                break;
+            default:
+                logger.warn("got unknown type {} for column '{}'-- ignoring this column",
+                        type, colName);
+        }
+    }
+
     private void logOrThrow(boolean log, String msg, Exception e)
             throws FlumeException {
         if (log) {
@@ -326,6 +394,10 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
             return true;
         }
         return false;
+    }
+
+    private boolean isPrimaryKey(String key) {
+        return primaryKeySet.contains(key);
     }
 
     @Override
