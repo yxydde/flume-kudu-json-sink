@@ -176,12 +176,15 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
                 DEFAULT_SKIP_BAD_COLUMN_VALUE);
 
         addContentMD5 = context.getBoolean(ADD_CONTENT_MD5, true);
-        try {
-            msgDigest = MessageDigest.getInstance("MD5");
-        } catch (NoSuchAlgorithmException e) {
-            throw new FlumeException(
-                    String.format("Invalid algorithm %s for MessageDigest ", "MD5"), e);
+        if (addContentMD5) {
+            try {
+                msgDigest = MessageDigest.getInstance("MD5");
+            } catch (NoSuchAlgorithmException e) {
+                throw new FlumeException(
+                        String.format("Invalid algorithm %s for MessageDigest ", "MD5"), e);
+            }
         }
+
         String primaryKeys = context.getString(KUDU_PRIMARY_KEYS, "");
         primaryKeySet = new HashSet<>();
         String[] pks = primaryKeys.split(",");
@@ -236,6 +239,12 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
         Operation op = getOperationType();
         ColumnSchema col = null;
         PartialRow row = op.getRow();
+        for (String primary : primaryKeySet) {
+            Object val = json.get(primary);
+            if (val == null) {
+                json.put(primary, "");
+            }
+        }
         for (Map.Entry<String, Object> entry : json.entrySet()) {
             try {
                 String key = entry.getKey();
