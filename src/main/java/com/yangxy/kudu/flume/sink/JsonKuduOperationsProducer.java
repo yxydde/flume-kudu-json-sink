@@ -134,7 +134,9 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
     public static final String ADD_CONTENT_MD5 = "addContentMD5";
 
     public static final String KUDU_TIMESTAMP_COLUMS = "kuduTimeStampColums";
-    public static final String KUDU_PRIMARY_KEYS = "kuduPrimaryKeys";
+
+    //case sensitive
+    public static final String KUDU_PRIMARY_KEYS = "jsonPrimaryKeys";
     public static final String INPUT_DATE_FORMAT = "inputDateFormat";
     public static final String DEFAULT_INPUT_DATE_FORMAT = "yyyy-MM-dd HH:mm:ss.S";
 
