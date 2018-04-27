@@ -213,11 +213,11 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
         String raw = new String(event.getBody(), charset);
         try {
             JSONObject json = JSONObject.parseObject(raw);
-            if (addTimeStamp) {
-                json.put("timestamp", currentUnixTimeMicros());
-            }
             if (addContentMD5) {
                 json.put("md5", DigestUtils.md5Hex(raw));
+            }
+            if (addTimeStamp) {
+                json.put("timestamp", currentUnixTimeMicros());
             }
             Schema schema = table.getSchema();
             if (!json.isEmpty()) {
