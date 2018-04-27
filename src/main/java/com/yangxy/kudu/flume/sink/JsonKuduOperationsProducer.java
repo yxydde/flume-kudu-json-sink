@@ -124,8 +124,7 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
     public static final String DEFAULT_ENCODING = "utf-8";
     public static final String OPERATION_PROP = "operation";
     public static final String DEFAULT_OPERATION = UPSERT;
-    public static final String SKIP_MISSING_COLUMN_PROP = "skipMissingColumn";
-    public static final boolean DEFAULT_SKIP_MISSING_COLUMN = false;
+
     public static final String SKIP_BAD_COLUMN_VALUE_PROP = "skipBadColumnValue";
     public static final boolean DEFAULT_SKIP_BAD_COLUMN_VALUE = false;
 
@@ -133,6 +132,7 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
     public static final boolean DEFAULT_SKIP_ERROR_EVENT = false;
 
     public static final String ADD_CONTENT_MD5 = "addContentMD5";
+    public static final String ADD_TIMESTAMP_COLUM = "addTimeStampColum";
 
     public static final String KUDU_TIMESTAMP_COLUMS = "kuduTimeStampColums";
 
@@ -153,6 +153,7 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
     private Set<String> timeColumSet;
     private DateFormat dateFormat;
     private boolean addContentMD5;
+    private Boolean addTimeStamp;
 
     @Override
     public void configure(Context context) {
@@ -175,6 +176,7 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
                 DEFAULT_SKIP_BAD_COLUMN_VALUE);
 
         addContentMD5 = context.getBoolean(ADD_CONTENT_MD5, true);
+        addTimeStamp = context.getBoolean(ADD_TIMESTAMP_COLUM, true);
 
         String primaryKeys = context.getString(KUDU_PRIMARY_KEYS, "");
         primaryKeySet = new HashSet<>();
@@ -209,6 +211,9 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
         String raw = new String(event.getBody(), charset);
         try {
             JSONObject json = JSONObject.parseObject(raw);
+            if (addTimeStamp) {
+                json.put("timestamp", currentUnixTimeMicros());
+            }
             if (addContentMD5) {
                 json.put("md5", DigestUtils.md5Hex(raw));
             }
@@ -224,6 +229,10 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
         }
 
         return ops;
+    }
+
+    private long currentUnixTimeMicros() {
+        return System.currentTimeMillis() * 1000;
     }
 
     private Operation getOperation(String raw, JSONObject json, Schema schema) {
@@ -376,7 +385,7 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
                 row.addDouble(colName, -1);
                 break;
             case UNIXTIME_MICROS:
-                row.addLong(colName, System.currentTimeMillis() * 1000);
+                row.addLong(colName, currentUnixTimeMicros());
                 break;
             default:
                 logger.warn("got unknown type {} for column '{}'-- ignoring this column",
