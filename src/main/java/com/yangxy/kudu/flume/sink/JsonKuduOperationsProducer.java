@@ -182,7 +182,9 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
         primaryKeySet = new HashSet<>();
         String[] pks = primaryKeys.split(",");
         for (String pk : pks) {
-            primaryKeySet.add(pk.trim());
+            if (!"".equals(pk.trim())) {
+                primaryKeySet.add(pk.trim());
+            }
         }
 
         String inputDateFormat = context.getString(INPUT_DATE_FORMAT, DEFAULT_INPUT_DATE_FORMAT);
