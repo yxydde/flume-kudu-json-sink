@@ -4,6 +4,7 @@ import com.alibaba.fastjson.JSONException;
 import com.alibaba.fastjson.JSONObject;
 import com.google.common.base.Preconditions;
 import com.google.common.collect.Lists;
+import org.apache.commons.codec.digest.DigestUtils;
 import org.apache.commons.lang.StringUtils;
 import org.apache.flume.Context;
 import org.apache.flume.Event;
@@ -147,13 +148,11 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
 
     private Charset charset;
     private String operation;
-    private boolean skipMissingColumn;
     private boolean skipBadColumnValue;
     private boolean skipErrorEvent;
     private Set<String> timeColumSet;
     private DateFormat dateFormat;
     private boolean addContentMD5;
-    private MessageDigest msgDigest;
 
     @Override
     public void configure(Context context) {
@@ -170,22 +169,12 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
                 validOperations.contains(operation),
                 "Unrecognized operation '%s'",
                 operation);
-        skipMissingColumn = context.getBoolean(SKIP_MISSING_COLUMN_PROP,
-                DEFAULT_SKIP_MISSING_COLUMN);
         skipErrorEvent = context.getBoolean(SKIP_ERROR_EVENT_PROP,
                 DEFAULT_SKIP_ERROR_EVENT);
         skipBadColumnValue = context.getBoolean(SKIP_BAD_COLUMN_VALUE_PROP,
                 DEFAULT_SKIP_BAD_COLUMN_VALUE);
 
         addContentMD5 = context.getBoolean(ADD_CONTENT_MD5, true);
-        if (addContentMD5) {
-            try {
-                msgDigest = MessageDigest.getInstance("MD5");
-            } catch (NoSuchAlgorithmException e) {
-                throw new FlumeException(
-                        String.format("Invalid algorithm %s for MessageDigest ", "MD5"), e);
-            }
-        }
 
         String primaryKeys = context.getString(KUDU_PRIMARY_KEYS, "");
         primaryKeySet = new HashSet<>();
@@ -221,7 +210,7 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
         try {
             JSONObject json = JSONObject.parseObject(raw);
             if (addContentMD5) {
-                json.put("md5", new String(msgDigest.digest(raw.getBytes())));
+                json.put("md5", DigestUtils.md5Hex(raw));
             }
             Schema schema = table.getSchema();
             if (!json.isEmpty()) {
