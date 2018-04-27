@@ -240,11 +240,12 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
             try {
                 String key = entry.getKey();
                 col = schema.getColumn(key.toLowerCase());
-                final String value;
-                if (timeColumSet != null && timeColumSet.contains(col.getName())) {
-                    value = toUnixtimeMicros(entry.getValue().toString());
-                } else {
+                String value = null;
+                if (entry.getValue() != null) {
                     value = entry.getValue().toString();
+                }
+                if (timeColumSet != null && timeColumSet.contains(col.getName())) {
+                    value = toUnixtimeMicros(value);
                 }
                 if (!isNullOrEmpty(value)) {
                     coerceAndSet(value, col.getName(), col.getType(), row);
