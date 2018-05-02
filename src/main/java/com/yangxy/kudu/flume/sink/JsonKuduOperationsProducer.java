@@ -257,6 +257,13 @@ public class JsonKuduOperationsProducer implements KuduOperationsProducer {
                 }
                 if (timeColumSet != null && timeColumSet.contains(col.getName())) {
                     value = toUnixtimeMicros(value);
+                    //Bigger than current Time 2 hours
+                    long hours = currentUnixTimeMicros() + 2 * 60 * 3600 * 1000 * 1000L;
+                    if (Long.valueOf(value) > hours) {
+                        logger.warn(String.format("%s Bigger than current Time %s  2 hours: %s",
+                                col.getName(), Long.toString(hours), json.toJSONString()));
+                        value = Long.toString(currentUnixTimeMicros());
+                    }
                 }
                 if (!isNullOrEmpty(value)) {
                     coerceAndSet(value, col.getName(), col.getType(), row);
